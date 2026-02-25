@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Generador de CURP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Generador y Análisis de CURP</h1>
+  <div class="container">
+    <div class="left">
+      <form id="curpForm">
+        <input type="text" name="nombre" placeholder="Nombre" required>
+        <input type="text" name="apellido_p" placeholder="Apellido Paterno" required>
+        <input type="text" name="apellido_m" placeholder="Apellido Materno" required>
+        <input type="date" name="fecha_nac" required>
+        <select name="sexo">
+          <option value="H">Hombre</option>
+          <option value="M">Mujer</option>
+        </select>
+        <select name="entidad">
+          <option value="OAX">Oaxaca</option>
+          <option value="TLX">Tlaxcala</option>
+        </select>
+        <button type="submit">Generar CURP</button>
+      </form>
+      <p id="resultado"></p>
+    </div>
+    <div class="right">
+      <h3>Desglose Léxico de la CURP</h3>
+      <div id="analisis"></div>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
