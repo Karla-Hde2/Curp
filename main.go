@@ -1,140 +1,199 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
-	"regexp"
 	"strings"
+	"time"
+	"unicode"
 )
 
-type Datos struct {
-	Nombre     string `json:"nombre"`
-	ApellidoP  string `json:"apellido_p"`
-	ApellidoM  string `json:"apellido_m"`
-	FechaNac   string `json:"fecha_nac"`
-	Sexo       string `json:"sexo"`
-	Entidad    string `json:"entidad"`
+type Resultado struct {
+	Curp   string
+	Lexico []string
+	Error  string
 }
 
-// --- Validaciones léxicas ---
-func validarTokens(d Datos) error {
-	reNombre := regexp.MustCompile(`^[A-Za-zÁÉÍÓÚÑ]+$`)
-	if !reNombre.MatchString(d.Nombre) || !reNombre.MatchString(d.ApellidoP) || !reNombre.MatchString(d.ApellidoM) {
-		return fmt.Errorf("Nombre o apellidos inválidos")
-	}
-	reFecha := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	if !reFecha.MatchString(d.FechaNac) {
-		return fmt.Errorf("Fecha inválida")
-	}
-	if d.Sexo != "H" && d.Sexo != "M" {
-		return fmt.Errorf("Sexo inválido")
-	}
-	if d.Entidad != "OAX" && d.Entidad != "TLX" {
-		return fmt.Errorf("Entidad inválida")
-	}
-	return nil
+var tpl = template.Must(template.New("form").Parse(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generador y Análisis de CURP</title>
+    <style>
+        body { font-family: Arial; display: flex; }
+        .formulario { width: 40%; padding: 20px; }
+        .resultado { width: 60%; padding: 20px; background: #f9f9f9; }
+        h2 { color: #333; }
+        input { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="formulario">
+        <h2>Generador de CURP</h2>
+        <form method="POST" action="/generar">
+            Nombre: <input type="text" name="nombre"><br>
+            Apellido paterno: <input type="text" name="paterno"><br>
+            Apellido materno: <input type="text" name="materno"><br>
+            Año de nacimiento (AAAA): <input type="text" name="anio"><br>
+            Mes de nacimiento (MM): <input type="text" name="mes"><br>
+            Día de nacimiento (DD): <input type="text" name="dia"><br>
+            Sexo (H/M): <input type="text" name="sexo"><br>
+            Estado (OC=Oaxaca, TL=Tlaxcala): <input type="text" name="estado"><br>
+            <input type="submit" value="Generar CURP">
+        </form>
+    </div>
+    <div class="resultado">
+        {{if .Error}}
+            <h3 style="color:red;">Error: {{.Error}}</h3>
+        {{else if .Curp}}
+            <h2>CURP generada: {{.Curp}}</h2>
+            <h3>Desglose Léxico de la CURP</h3>
+            <ul>
+                {{range .Lexico}}
+                    <li>{{.}}</li>
+                {{end}}
+            </ul>
+        {{end}}
+    </div>
+</body>
+</html>
+`))
+
+func formHandler(w http.ResponseWriter, r *http.Request) {
+	tpl.Execute(w, nil)
 }
 
-// --- Validaciones sintácticas ---
-func validarSintaxis(d Datos) error {
-	if d.Nombre == "" || d.ApellidoP == "" || d.ApellidoM == "" || d.FechaNac == "" || d.Sexo == "" || d.Entidad == "" {
-		return fmt.Errorf("Faltan campos obligatorios")
+func generarHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Método inválido", http.StatusMethodNotAllowed)
+		return
 	}
-	return nil
+
+	nombre := strings.ToUpper(r.FormValue("nombre"))
+	paterno := strings.ToUpper(r.FormValue("paterno"))
+	materno := strings.ToUpper(r.FormValue("materno"))
+	anio := r.FormValue("anio")
+	mes := r.FormValue("mes")
+	dia := r.FormValue("dia")
+	sexo := strings.ToUpper(r.FormValue("sexo"))
+	estado := strings.ToUpper(r.FormValue("estado"))
+
+	// Validaciones de texto
+	if !validarTexto(nombre) || !validarTexto(paterno) || !validarTexto(materno) {
+		tpl.Execute(w, Resultado{Error: "Nombres y apellidos deben contener solo letras y mínimo 3 caracteres"})
+		return
+	}
+	if contieneObscenidad(nombre) || contieneObscenidad(paterno) || contieneObscenidad(materno) {
+		tpl.Execute(w, Resultado{Error: "Los nombres o apellidos contienen palabras no permitidas"})
+		return
+	}
+
+	// Validar estado
+	if estado != "OC" && estado != "TL" {
+		tpl.Execute(w, Resultado{Error: "Solo se permiten CURPs de Oaxaca (OC) y Tlaxcala (TL)"})
+		return
+	}
+
+	// Construir fecha
+	fechaStr := fmt.Sprintf("%s-%s-%s", anio, mes, dia)
+	fecha, err := time.Parse("2006-01-02", fechaStr)
+	if err != nil {
+		tpl.Execute(w, Resultado{Error: "Fecha inválida"})
+		return
+	}
+
+	// Validar edad máxima
+	hoy := time.Now()
+	edad := hoy.Year() - fecha.Year()
+	if hoy.YearDay() < fecha.YearDay() {
+		edad--
+	}
+	if edad > 120 {
+		tpl.Execute(w, Resultado{Error: "Edad mayor a 120 años, CURP no válida"})
+		return
+	}
+
+	// Validar 29 de febrero
+	if fecha.Month() == time.February && fecha.Day() == 29 {
+		if !esBisiesto(fecha.Year()) {
+			tpl.Execute(w, Resultado{Error: fmt.Sprintf("El año %d no es bisiesto, fecha inválida", fecha.Year())})
+			return
+		}
+	}
+
+	// Construcción simplificada de CURP
+	curp := fmt.Sprintf("%s%s%s%s%s%s%s%s",
+		string(paterno[0]),
+		buscarVocalInterna(paterno),
+		string(materno[0]),
+		string(nombre[0]),
+		fecha.Format("060102"), // AAMMDD
+		sexo,
+		estado,
+		"01", // homoclave simplificada
+	)
+
+	// Análisis léxico
+	lexico := []string{
+		fmt.Sprintf("%s → Inicial del apellido paterno", string(paterno[0])),
+		fmt.Sprintf("%s → Primera vocal interna del apellido paterno", buscarVocalInterna(paterno)),
+		fmt.Sprintf("%s → Inicial del apellido materno", string(materno[0])),
+		fmt.Sprintf("%s → Inicial del nombre", string(nombre[0])),
+		fmt.Sprintf("%s → Fecha de nacimiento (AAMMDD)", fecha.Format("060102")),
+		fmt.Sprintf("%s → Sexo (H=Hombre, M=Mujer)", sexo),
+		fmt.Sprintf("%s → Estado de nacimiento (OC=Oaxaca, TL=Tlaxcala)", estado),
+		"01 → Homoclave simplificada",
+	}
+
+	tpl.Execute(w, Resultado{Curp: curp, Lexico: lexico})
 }
 
-// --- Generador de CURP ---
-func generarCURP(d Datos) string {
-	nombre := strings.ToUpper(d.Nombre)
-	apP := strings.ToUpper(d.ApellidoP)
-	apM := strings.ToUpper(d.ApellidoM)
-
-	parte1 := apP[:1] + primeraVocalInterna(apP) + apM[:1] + nombre[:1]
-	parte2 := d.FechaNac[2:4] + d.FechaNac[5:7] + d.FechaNac[8:10]
-	parte3 := d.Sexo
-	parte4 := d.Entidad
-	parte5 := primeraConsonanteInterna(apP) + primeraConsonanteInterna(apM) + primeraConsonanteInterna(nombre)
-	parte6 := "01"
-
-	return parte1 + parte2 + parte3 + parte4 + parte5 + parte6
+func esBisiesto(year int) bool {
+	if year%400 == 0 {
+		return true
+	}
+	if year%100 == 0 {
+		return false
+	}
+	return year%4 == 0
 }
 
-func primeraVocalInterna(s string) string {
+func buscarVocalInterna(paterno string) string {
 	vocales := "AEIOU"
-	for _, c := range s[1:] {
-		if strings.ContainsRune(vocales, c) {
+	for _, c := range paterno[1:] {
+		if strings.ContainsRune(vocales, rune(c)) {
 			return string(c)
 		}
 	}
 	return "X"
 }
 
-func primeraConsonanteInterna(s string) string {
-	consonantes := "BCDFGHJKLMNÑPQRSTVWXYZ"
-	for _, c := range s[1:] {
-		if strings.ContainsRune(consonantes, c) {
-			return string(c)
+func validarTexto(texto string) bool {
+	if len(texto) < 3 {
+		return false
+	}
+	for _, c := range texto {
+		if !unicode.IsLetter(c) {
+			return false
 		}
 	}
-	return "X"
+	return true
 }
 
-// --- Analizador léxico de CURP ---
-func analizarCURP(curp string) map[int]string {
-	resultado := make(map[int]string)
-	if len(curp) < 18 {
-		resultado[0] = "CURP incompleta"
-		return resultado
-	}
-	resultado[0] = fmt.Sprintf("%c: Inicial del primer apellido", curp[0])
-	resultado[1] = fmt.Sprintf("%c: Primera vocal interna del primer apellido", curp[1])
-	resultado[2] = fmt.Sprintf("%c: Inicial del segundo apellido", curp[2])
-	resultado[3] = fmt.Sprintf("%c: Inicial del nombre", curp[3])
-	resultado[4] = fmt.Sprintf("%c: Penúltimo dígito del año de nacimiento", curp[4])
-	resultado[5] = fmt.Sprintf("%c: Último dígito del año de nacimiento", curp[5])
-	resultado[6] = fmt.Sprintf("%c: Primer dígito del mes de nacimiento", curp[6])
-	resultado[7] = fmt.Sprintf("%c: Segundo dígito del mes de nacimiento", curp[7])
-	resultado[8] = fmt.Sprintf("%c: Primer dígito del día de nacimiento", curp[8])
-	resultado[9] = fmt.Sprintf("%c: Segundo dígito del día de nacimiento", curp[9])
-	resultado[10] = fmt.Sprintf("%c: Sexo (H/M)", curp[10])
-	resultado[11] = fmt.Sprintf("%c: Primera letra de la entidad federativa", curp[11])
-	resultado[12] = fmt.Sprintf("%c: Segunda letra de la entidad federativa", curp[12])
-	resultado[13] = fmt.Sprintf("%c: Primera consonante interna del primer apellido", curp[13])
-	resultado[14] = fmt.Sprintf("%c: Primera consonante interna del segundo apellido", curp[14])
-	resultado[15] = fmt.Sprintf("%c: Primera consonante interna del nombre", curp[15])
-	resultado[16] = fmt.Sprintf("%c: Dígito de homoclave", curp[16])
-	resultado[17] = fmt.Sprintf("%c: Letra/número de homoclave", curp[17])
-	return resultado
-}
-
-func handlerGenerarCURP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		var datos Datos
-		json.NewDecoder(r.Body).Decode(&datos)
-
-		if err := validarTokens(datos); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+func contieneObscenidad(texto string) bool {
+	obscenas := []string{"PUTA", "PENE", "MAMADA", "VERGA", "CULO"} // lista básica
+	for _, palabra := range obscenas {
+		if strings.Contains(texto, palabra) {
+			return true
 		}
-		if err := validarSintaxis(datos); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		curp := generarCURP(datos)
-		analisis := analizarCURP(curp)
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"curp":     curp,
-			"analisis": analisis,
-		})
 	}
+	return false
 }
 
 func main() {
-	http.Handle("/", http.FileServer(http.Dir("./static")))
-	http.HandleFunc("/generar-curp", handlerGenerarCURP)
-	fmt.Println("Servidor corriendo en http://localhost:3030")
-	http.ListenAndServe(":3000", nil)
+	http.HandleFunc("/", formHandler)
+	http.HandleFunc("/generar", generarHandler)
+	fmt.Println("Servidor corriendo en http://localhost:3030/")
+	http.ListenAndServe(":3030", nil)
 }

@@ -1,36 +1,84 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Generador de CURP</title>
-  <link rel="stylesheet" href="style.css">
+    <title>Consulta tu CURP</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        .container {
+            width: 80%;
+            margin: auto;
+            display: flex;
+            padding: 20px;
+        }
+        .formulario {
+            width: 40%;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 0px 5px #ccc;
+        }
+        .resultado {
+            width: 60%;
+            background: #fff;
+            padding: 20px;
+            margin-left: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 0px 5px #ccc;
+        }
+        h2 {
+            color: #333;
+        }
+        input {
+            margin-bottom: 10px;
+            width: 95%;
+            padding: 5px;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
-  <h1>Generador y Análisis de CURP</h1>
-  <div class="container">
-    <div class="left">
-      <form id="curpForm">
-        <input type="text" name="nombre" placeholder="Nombre" required>
-        <input type="text" name="apellido_p" placeholder="Apellido Paterno" required>
-        <input type="text" name="apellido_m" placeholder="Apellido Materno" required>
-        <input type="date" name="fecha_nac" required>
-        <select name="sexo">
-          <option value="H">Hombre</option>
-          <option value="M">Mujer</option>
-        </select>
-        <select name="entidad">
-          <option value="OAX">Oaxaca</option>
-          <option value="TLX">Tlaxcala</option>
-        </select>
-        <button type="submit">Generar CURP</button>
-      </form>
-      <p id="resultado"></p>
+    <div class="container">
+        <!-- Formulario -->
+        <div class="formulario">
+            <h2>Consulta tu CURP</h2>
+            <form method="POST" action="/generar">
+                Nombre: <input type="text" name="nombre" placeholder="Ej. Karla"><br>
+                Apellido paterno: <input type="text" name="paterno" placeholder="Ej. Hernandez"><br>
+                Apellido materno: <input type="text" name="materno" placeholder="Ej. Nuñez"><br>
+                Año de nacimiento (AAAA): <input type="text" name="anio" placeholder="Ej. 1995"><br>
+                Mes de nacimiento (MM): <input type="text" name="mes" placeholder="Ej. 02"><br>
+                Día de nacimiento (DD): <input type="text" name="dia" placeholder="Ej. 28"><br>
+                Sexo (H/M): <input type="text" name="sexo" placeholder="Ej. M"><br>
+                Estado (OC=Oaxaca, TL=Tlaxcala): <input type="text" name="estado" placeholder="Ej. TL"><br>
+                <input type="submit" value="Generar CURP">
+            </form>
+        </div>
+
+        <!-- Resultado -->
+        <div class="resultado">
+            <!-- Aquí se mostrará el resultado desde Go -->
+            {{if .Error}}
+                <p class="error">Error: {{.Error}}</p>
+            {{else if .Curp}}
+                <h2 class="success">CURP generada: {{.Curp}}</h2>
+                <h3>Desglose Léxico de la CURP</h3>
+                <ul>
+                    {{range .Lexico}}
+                        <li>{{.}}</li>
+                    {{end}}
+                </ul>
+            {{end}}
+        </div>
     </div>
-    <div class="right">
-      <h3>Desglose Léxico de la CURP</h3>
-      <div id="analisis"></div>
-    </div>
-  </div>
-  <script src="script.js"></script>
 </body>
 </html>
